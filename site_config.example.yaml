@@ -1,0 +1,171 @@
+# ═══════════════════════════════════════════════════════════
+#  site_config.yaml — ENGenius/IMPACT Static Site Generator
+#  Configurazione del sito da generare
+# ═══════════════════════════════════════════════════════════
+#
+# Copia questo file come `site_config.yaml` nella cartella del tuo progetto
+# e personalizza i campi. Tutti i path relativi sono risolti dalla posizione
+# di questo file.
+#
+# Uso:
+#   python3 generate_site.py                      # cerca site_config.yaml nel CWD
+#   python3 generate_site.py --config path/to/site_config.yaml
+#   python3 generate_site.py --project myproject  # rigenera solo un progetto
+
+# ── Configurazione globale del sito ─────────────────────────
+site:
+  # Titolo visualizzato nell'header e nel <title> delle pagine
+  title: "Portfolio Documentazione Tecnica"
+
+  # Sottotitolo / description (usato in header e meta description)
+  description: "Documentazione generata da ENGenius e IMPACT"
+
+  # Directory dove viene scritto il sito HTML generato
+  # Relativo al file di config oppure assoluto
+  output_dir: "./docs"
+
+  # Percorso al CSS custom (null = usa assets/default.css della skill)
+  # Il CSS viene COPIATO in <output_dir>/assets/style.css
+  css_file: null
+  # css_file: "./my_custom_theme.css"
+
+  # Percorso al JS custom (null = usa assets/default.js della skill)
+  js_file: null
+
+# ── Progetti / Repository ────────────────────────────────────
+# Ogni voce rappresenta un repository/progetto da includere nel sito.
+# I progetti di tipo "parent" contengono documentazione enterprise cross-progetto.
+projects:
+
+  # ── Progetto PARENT (enterprise/portfolio) ───────────────
+  # Il progetto parent contiene i documenti enterprise prodotti da IMPACT enterprise.
+  # Scansiona: <path>/_enterprise/ oppure <enterprise_path>
+  - id: "portfolio"              # ID breve, usato negli URL
+    name: "portfolio-container"  # Nome completo del repository
+    label: "Portfolio"           # Label per l'UI
+    short: "PF"                  # Sigla corta (max 4 char)
+    path: "../portfolio-container"  # Path al repository (relativo al config o assoluto)
+    type: "parent"               # "parent" = contiene docs enterprise
+    color: "legacy"              # Colore per il dot: backend|frontend|bff|legacy|service
+    badge: "Portfolio"           # Badge visualizzato nella card
+    desc: "Repository padre del portfolio. Documentazione enterprise cross-progetto."
+    stack: []
+
+    # Opzionale: override path documenti enterprise
+    # Di default scansiona: <path>/_enterprise/ poi <path>/documentazione/enterprise/
+    enterprise_path: null
+    # enterprise_path: "../portfolio-container/_enterprise"
+
+    # Opzionale: nome progetto DocMind da cui fare pull dei documenti
+    docmind_project: null
+    # docmind_project: "my-docmind-project-name"
+
+  # ── Progetto Backend ─────────────────────────────────────
+  - id: "my-backend"
+    name: "my-backend-service"
+    label: "My Backend"
+    short: "BE"
+    path: "../my-backend-service"
+    type: "backend"
+    color: "backend"             # Colori: backend(verde)|frontend(blu)|bff(viola)|legacy(arancio)|service(grigio)
+    badge: "Backend"
+    desc: "Backend API principale. Gestione business logic e persistenza dati."
+    stack: ["Java 21", "Spring Boot 3", "MongoDB", "Kafka"]
+
+    # Opzionale: override path docs (IMPACT how output)
+    # Di default: <path>/docs/
+    docs_path: null
+
+    # Opzionale: override path artefatti ENGenius (CONCEPT, ANALYSIS, DESIGN, ecc.)
+    # Di default: <path>/artifacts/
+    artifacts_path: null
+
+    # Opzionale: DocMind per pull artefatti ENGenius
+    docmind_project: null
+    # docmind_project: "my-docmind-project-name"
+
+  # ── Progetto BFF ─────────────────────────────────────────
+  - id: "my-bff"
+    name: "my-bff-service"
+    label: "My BFF"
+    short: "BFF"
+    path: "../my-bff-service"
+    type: "bff"
+    color: "bff"
+    badge: "BFF/Gateway"
+    desc: "Backend-for-Frontend. Autenticazione, sessione e proxy sicuro."
+    stack: ["Java 21", "Spring Cloud Gateway", "Redis", "OIDC"]
+    docs_path: null
+    artifacts_path: null
+    docmind_project: null
+
+  # ── Progetto Frontend ─────────────────────────────────────
+  - id: "my-frontend"
+    name: "my-frontend-app"
+    label: "My Frontend"
+    short: "FE"
+    path: "../my-frontend-app"
+    type: "frontend"
+    color: "frontend"
+    badge: "Frontend"
+    desc: "Single Page Application. UI componenti e logica di presentazione."
+    stack: ["Angular 18", "TypeScript", "PrimeNG"]
+    docs_path: null
+    artifacts_path: null
+    docmind_project: null
+
+# ═══════════════════════════════════════════════════════════
+#  RIFERIMENTO — Struttura cartelle documenti attesa per progetto
+# ═══════════════════════════════════════════════════════════
+#
+# Ogni progetto può avere una combinazione qualunque di questi documenti.
+# Il generatore si adatta dinamicamente a ciò che trova.
+#
+# IMPACT how (docs/*.md):
+#   docs/00_deep_dive.md, 01_context.md, ..., 19_modernization_estimation_spec.md
+#
+# IMPACT how-deepdive:
+#   docs/impact/how/deepdive/deepdive_*.md
+#
+# IMPACT what-process:
+#   docs/impact/how/processes/process_*.md
+#
+# IMPACT what (use cases da browser):
+#   docs/impact/what/USE_CASE_*.md
+#
+# ENGenius forward-engineering (locale o da DocMind):
+#
+#   Ramo standard (ANALYSIS):
+#   artifacts/01_business_requirements.md
+#   artifacts/02_functional_requirements.md
+#   artifacts/03_features.md
+#   artifacts/04_use_cases.md
+#   artifacts/04b_scenarios.md
+#   artifacts/04c_non_functional_requirements.md
+#   artifacts/04-fp-sizing.md
+#   artifacts/05_logical_entities.md
+#   artifacts/06_processes.md
+#   artifacts/07_components.md
+#   artifacts/08_dependencies.md
+#   artifacts/09_architecture_design.md
+#   artifacts/10_coverage_matrix.md
+#   artifacts/11_cost_matrix.md
+#   artifacts/test_spec/01-test-units.md
+#   artifacts/test_spec/02-test-rules.md
+#   artifacts/test_spec/03-test-scenarios.md
+#   artifacts/test_spec/04-test-cases.md
+#
+#   Ramo agile (ANALYSIS agile — 02b_agile_analysis):
+#   artifacts/01_ba.md               ← Business Analysis
+#   artifacts/02_epics.md            ← Epics
+#   artifacts/03_features.md         ← Features (condiviso con standard)
+#   artifacts/04_user_stories.md     ← User Stories
+#
+# IMPACT enterprise (per progetto di tipo "parent"):
+#   _enterprise/00_portfolio_overview.md
+#   _enterprise/01_tech_stack_matrix.md
+#   _enterprise/02_system_landscape.md
+#   _enterprise/03_risk_heatmap.md
+#   _enterprise/04_decisions_rollup.md
+#   _enterprise/05_portfolio_sizing.md
+#   _enterprise/06_modernization_roadmap.md
