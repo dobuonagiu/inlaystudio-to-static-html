@@ -106,7 +106,7 @@ DOC_LABELS = {
     '05_principles': ('Principi', '📌'),
     '06_software_architecture': ('Architettura SW', '🏗️'),
     '07_code': ('Codice', '💻'),
-    '08_data': ('Dati / MongoDB', '🗄️'),
+    '08_data': ('Data Architecture', '🗄️'),
     '09_infrastructure_architecture': ('Infrastruttura', '☁️'),
     '10_deployment': ('Deployment', '🚀'),
     '11_development_environment': ('Dev Environment', '🛠️'),
@@ -595,53 +595,73 @@ def scan_docs(repo):
 #  MONGODB EXTRACTOR (da 08_data.md — no inference)
 # ═══════════════════════════════════════════════════════════
 
-def extract_mongo_info(docs):
-    """Extract MongoDB collections info from 08_data.md of a project."""
+def extract_data_info(docs):
+    """Extract data model info from 08_data.md — works for any DB type (relational or NoSQL)."""
     data_doc = next((d for d in docs if d['stem'] == '08_data'), None)
     if not data_doc:
-        return {'collections': [], 'erd_mermaid': '', 'flow_mermaid': ''}
-    
+        return {'entities': [], 'erd_mermaid': '', 'class_mermaid': '', 'flow_mermaid': ''}
+
     text = data_doc['text']
-    collections = []
-    
-    # extract collections table (Physical Data Model section)
-    tbl_match = re.search(r'###.*Collections?\s*\n\s*\n(\|.+\|[\s\S]+?)(?=\n\n|\n##|$)', text)
-    if tbl_match:
-        tbl = tbl_match.group(1)
-        for m in re.finditer(r'\|\s*`?([^|`]+)`?\s*\|\s*`?([^|`]*)`?\s*\|\s*([^|]*)\s*\|', tbl):
-            cname = m.group(1).strip().strip('`')
-            cls = m.group(2).strip().strip('`')
-            note = m.group(3).strip()
-            if cname and cname.lower() not in ('collection', 'classe', 'class', 'entity', '---'):
-                collections.append({'name': cname, 'class': cls, 'note': note})
+    entities = []
 
-    # also look for inline mentions in Core logical entities table
-    ent_match = re.search(r'###.*[Cc]ore.*entities?\s*\n\s*\n(\|.+\|[\s\S]+?)(?=\n\n|\n##|$)', text)
-    if ent_match and not collections:
-        tbl = ent_match.group(1)
-        for m in re.finditer(r'\|\s*`([^`]+)`\s*\|\s*([^|]+)\|', tbl):
-            cname = m.group(1).strip()
-            note = m.group(2).strip()
-            if cname and not cname.startswith('-'):
-                collections.append({'name': cname, 'class': '', 'note': note})
+    # ── Entity/table/collection extraction ────────────────
+    # Matches: Collections?, Tables?, Tabelle?, Entità/Entita, Entities?,
+    # Physical Data Model, Schema, Relazioni/Relations
+    _ENTITY_HDR = re.compile(
+        r'###[^\n]*?'
+        r'(?:Collections?|Tables?|Tabelle?|Entit[àa]|Entities?'
+        r'|Physical\s+Data|Schemi?|Relations?|Relazioni?|Domain\s+Objects?)'
+        r'[^\n]*\n\s*\n',
+        re.IGNORECASE
+    )
+    _SKIP = {
+        'collection','classe','class','entity','entità','table','tabella',
+        'relazione','relation','schema','name','nome','field','campo',
+        'tipo','type','descrizione','description',
+    }
+    def _is_separator(s):
+        return bool(re.match(r'^[-:| ]+$', s))
 
-    # extract ERD mermaid block
-    erd = ''
+    m = _ENTITY_HDR.search(text)
+    if m:
+        after = text[m.end():]
+        tbl_match = re.match(r'(\|.+\|[\s\S]+?)(?=\n\n|\n##|\n#|\Z)', after)
+        if tbl_match:
+            for row in re.finditer(r'\|\s*`?([^|`\n]+?)`?\s*\|\s*`?([^|`\n]*)`?\s*\|\s*([^|\n]*)\s*\|', tbl_match.group(1)):
+                name = row.group(1).strip().strip('`')
+                cls  = row.group(2).strip().strip('`')
+                note = row.group(3).strip()
+                if name and name.lower() not in _SKIP and not _is_separator(name):
+                    entities.append({'name': name, 'class': cls, 'note': note})
+
+    # Fallback: Core logical / Core entities table
+    if not entities:
+        core_m = re.search(
+            r'###[^#\n]*(?:Core|Logical|Principale)[^#\n]*\n\s*\n(\|.+\|[\s\S]+?)(?=\n\n|\n##|\Z)',
+            text, re.IGNORECASE
+        )
+        if core_m:
+            for row in re.finditer(r'\|\s*`([^`]+)`\s*\|\s*([^|]+)\|', core_m.group(1)):
+                name = row.group(1).strip()
+                note = row.group(2).strip()
+                if name and not name.startswith('-'):
+                    entities.append({'name': name, 'class': '', 'note': note})
+
+    # ── Mermaid diagram extraction ─────────────────────────
+    erd = class_mmd = flow = ''
     for m in re.finditer(r'```mermaid\n(.*?)```', text, re.DOTALL):
         code = m.group(1)
-        if 'erDiagram' in code:
+        if not erd and 'erDiagram' in code:
             erd = code.strip()
-            break
-
-    # extract flowchart (architecture) mermaid
-    flow = ''
-    for m in re.finditer(r'```mermaid\n(.*?)```', text, re.DOTALL):
-        code = m.group(1)
-        if any(k in code for k in ('flowchart', 'graph LR', 'graph TD')):
+        elif not class_mmd and 'classDiagram' in code:
+            class_mmd = code.strip()
+        elif not flow and any(k in code for k in ('flowchart', 'graph LR', 'graph TD', 'graph TB')):
             flow = code.strip()
-            break
 
-    return {'collections': collections, 'erd_mermaid': erd, 'flow_mermaid': flow}
+    return {'entities': entities, 'erd_mermaid': erd, 'class_mermaid': class_mmd, 'flow_mermaid': flow}
+
+# Keep old name as alias for backward compat
+extract_data_info = extract_data_info
 
 # ═══════════════════════════════════════════════════════════
 #  CSS + JS  —  caricati da assets/ al momento dell'esecuzione
@@ -694,18 +714,18 @@ def _sidebar(repos_data, current_url, base, all_docs_by_repo, site_cfg=None):
   </div>''')
 
     # ── Portfolio links ──────────────────────────────────────
-    mongo_link = ''
+    data_link = ''
     if any(
         any(d['stem'] == '08_data' for d in all_docs_by_repo.get(r['id'], []))
         for r in non_parent
     ):
-        mongo_link = f'      <a href="{base}mongodb.html">🗄️ MongoDB</a>\n'
+        data_link = f'      <a href="{base}data.html">🗄️ Modello Dati</a>\n'
 
     parts.append(f'''  <div class="sidebar-section">
     <span class="sidebar-section-title">🌐 Portfolio</span>
     <div class="sidebar-direct">
       <a href="{base}index.html">📋 Home</a>
-{mongo_link}      <a href="{base}search.html">🔍 Ricerca</a>
+{data_link}      <a href="{base}search.html">🔍 Ricerca</a>
     </div>
   </div>''')
 
@@ -993,19 +1013,19 @@ def gen_home(site_cfg, repos, all_docs_by_repo):
 </section>'''
 
     # ── MongoDB section (conditional) ────────────────────────
-    has_mongo = any(
+    has_data = any(
         any(d['stem'] == '08_data' for d in all_docs_by_repo.get(r['id'], []))
         for r in non_parent
     )
-    mongo_section = ''
-    if has_mongo:
-        mongo_section = f'''
+    data_section = ''
+    if has_data:
+        data_section = f'''
 <section id="mongodb-preview">
   <div class="container">
-    <h2 class="section-title">🗄️ Relazioni MongoDB</h2>
-    <p style="color:var(--c-muted);margin-bottom:1rem">Inventario delle collection MongoDB per progetto con ownership e relazioni tra entità.</p>
+    <h2 class="section-title">🗄️ Modello Dati</h2>
+    <p style="color:var(--c-muted);margin-bottom:1rem">Entità, tabelle e relazioni cross-repository — solo evidenze documentali (08_data.md).</p>
     <div style="display:flex;flex-wrap:wrap;gap:.8rem">
-      <a href="mongodb.html" style="display:inline-flex;align-items:center;gap:8px;background:var(--c-surface);border:1px solid var(--c-border);border-radius:var(--radius);padding:12px 20px;font-weight:600;color:var(--c-accent);text-decoration:none;font-size:.9rem">🗄️ Visualizza relazioni MongoDB →</a>
+      <a href="data.html" style="display:inline-flex;align-items:center;gap:8px;background:var(--c-surface);border:1px solid var(--c-border);border-radius:var(--radius);padding:12px 20px;font-weight:600;color:var(--c-accent);text-decoration:none;font-size:.9rem">🗄️ Visualizza modello dati →</a>
     </div>
   </div>
 </section>'''
@@ -1039,8 +1059,8 @@ def gen_home(site_cfg, repos, all_docs_by_repo):
     ]
     if landscape_mermaid:
         nav_items.insert(1, '<li><a href="#architettura">🌐 Architettura</a></li>')
-    if has_mongo:
-        nav_items.append('<li><a href="mongodb.html">🗄️ MongoDB</a></li>')
+    if has_data:
+        nav_items.append('<li><a href="data.html">🗄️ Modello Dati</a></li>')
     if ent_docs:
         nav_items.append('<li><a href="#enterprise">📊 Enterprise</a></li>')
     nav_items.append('<li><a href="search.html">🔍 Ricerca</a></li>')
@@ -1116,7 +1136,7 @@ def gen_home(site_cfg, repos, all_docs_by_repo):
   </div>
 </section>
 
-{mongo_section}
+{data_section}
 
 {enterprise_section}
 
@@ -1155,9 +1175,10 @@ def gen_project_page(repo, docs, all_docs_by_repo, repos=None, site_cfg=None):
             if len(exec_summary) > 900:
                 exec_summary = exec_summary[:900] + '…'
 
-    # mongodb info
-    mongo_info = extract_mongo_info(docs)
-    collections = mongo_info['collections']
+    # data model info (generic: relational or NoSQL)
+    data_info   = extract_data_info(docs)
+    entities    = data_info['entities']
+    erd_preview = data_info['erd_mermaid'] or data_info['class_mermaid']
 
     # doc cards for main docs
     doc_cards_html = ''
@@ -1204,10 +1225,10 @@ def gen_project_page(repo, docs, all_docs_by_repo, repos=None, site_cfg=None):
       </div>
     </div>'''
 
-    mongo_section = ''
-    if collections:
-        items = ''.join(f'<li><code>{h(c["name"])}</code> <span class="coll-note">{h(c.get("note",""))}</span></li>' for c in collections)
-        mongo_section = f'''<h2>🗄️ MongoDB Collections</h2>
+    data_section = ''
+    if entities:
+        items = ''.join(f'<li><code>{h(c["name"])}</code> <span class="coll-note">{h(c.get("note",""))}</span></li>' for c in entities)
+        data_section = f'''<h2>🗄️ Data Entities</h2>
     <ul class="collection-list">{items}</ul>
     <p style="margin-top:.5rem"><a href="../../{next((d["url"] for d in docs if d["stem"]=="08_data"), "#")}">→ Vedi modello dati completo</a></p>'''
 
@@ -1289,7 +1310,7 @@ def gen_project_page(repo, docs, all_docs_by_repo, repos=None, site_cfg=None):
     {f'<h2>📚 Documenti Tecnici ({len(main_docs)})</h2><div class="doc-cards">{doc_cards_html}</div>' if main_docs else ''}
 
     {arch_section}
-    {mongo_section}
+    {data_section}
     {art_section}
     {ts_section}
     {proc_section}
@@ -1368,48 +1389,48 @@ def gen_doc_page(doc, repo_or_none, all_docs_by_repo, repos=None, site_cfg=None)
 
 # ── MongoDB page ───────────────────────────────────────────
 
-def gen_mongodb_page(all_repos, all_docs_by_repo, site_cfg=None):
+def gen_data_page(all_repos, all_docs_by_repo, site_cfg=None):
     base = ''
-    sidebar = _sidebar(all_repos, 'mongodb.html', base, all_docs_by_repo, site_cfg)
+    sidebar = _sidebar(all_repos, 'data.html', base, all_docs_by_repo, site_cfg)
     site_title = (site_cfg or {}).get('title', 'Docs')
 
     sections = []
-    all_collections_table = []
+    all_entities_table = []
 
     for repo in all_repos:
         if repo.get('type') == 'parent':
             continue
         docs = all_docs_by_repo.get(repo['id'], [])
-        info = extract_mongo_info(docs)
-        colls = info['collections']
-        erd   = info['erd_mermaid']
-        flow  = info['flow_mermaid']
+        info = extract_data_info(docs)
+        entities  = info['entities']
+        erd       = info['erd_mermaid']
+        class_mmd = info['class_mermaid']
+        flow      = info['flow_mermaid']
 
-        if not colls and not erd and not flow:
+        if not entities and not erd and not class_mmd and not flow:
             continue
 
-        # table rows
-        for c in colls:
-            all_collections_table.append({'repo': repo['label'], 'name': c['name'], 'class': c.get('class',''), 'note': c.get('note','')})
+        # cross-repo table rows
+        for c in entities:
+            all_entities_table.append({'repo': repo['label'], 'name': c['name'], 'class': c.get('class',''), 'note': c.get('note','')})
 
-        # section HTML
-        colls_html = ''
-        if colls:
-            colls_html = '<ul class="collection-list">'
-            for c in colls:
+        # entity list HTML
+        entities_html = ''
+        if entities:
+            entities_html = '<ul class="collection-list">'
+            for c in entities:
                 note = f' <span class="coll-note">— {h(c["note"])}</span>' if c.get('note') else ''
                 cls  = f' <span class="coll-note">({h(c["class"])})</span>' if c.get('class') else ''
-                colls_html += f'<li><code>{h(c["name"])}</code>{cls}{note}</li>'
-            colls_html += '</ul>'
+                entities_html += f'<li><code>{h(c["name"])}</code>{cls}{note}</li>'
+            entities_html += '</ul>'
 
-        erd_html = ''
-        if erd:
+        def _diag_html(code, title):
             uid = _next_mmd()
-            erd_html = f'''<h3>Diagramma ER</h3>
+            return f'''<h3>{title}</h3>
       <div class="mermaid-wrap" id="{uid}-wrap">
         <div class="mermaid-toolbar">
           <div class="diag-title-area">
-            <h1>Entity Relationship — {h(repo["label"])}</h1>
+            <h1>{title} — {h(repo["label"])}</h1>
             <p class="diag-desc">Scroll per zoom &bull; Drag per navigare</p>
           </div>
           <button class="toolbar-btn" onclick="pzIn('{uid}')">🔍 Zoom +</button>
@@ -1419,50 +1440,58 @@ def gen_mongodb_page(all_repos, all_docs_by_repo, site_cfg=None):
           <button class="toolbar-btn toolbar-btn-primary" onclick="pzSvg('{uid}')">⬇ SVG</button>
         </div>
         <div class="mermaid-canvas" id="{uid}-canvas">
-          <div class="mermaid" id="{uid}">{h(erd)}</div>
+          <div class="mermaid" id="{uid}">{h(code)}</div>
           <div class="zoom-hint">Scroll: zoom &bull; Drag: pan</div>
         </div>
       </div>'''
 
+        diag_html = ''
+        if erd:       diag_html += _diag_html(erd,       'Entity-Relationship Diagram')
+        if class_mmd: diag_html += _diag_html(class_mmd, 'Class Diagram')
+        if flow and not erd and not class_mmd:
+            diag_html += _diag_html(flow, 'Data Flow')
+
         data_url = next((d['url'] for d in docs if d['stem'] == '08_data'), '')
-        color = repo['color']
+        color  = repo['color']
         cb_cls = f"cb-{color}"
+        entity_label = 'Entità / Tabelle' if entities else ''
         sections.append(f'''
     <section id="{repo['id']}" style="padding:2rem 0;border-top:1px solid var(--c-border)">
       <h2><span class="card-badge {cb_cls}" style="font-size:.75rem;margin-right:.5rem">{h(repo['badge'])}</span>{h(repo["label"])}</h2>
       <p style="color:var(--c-muted);font-size:.88rem;margin-bottom:1rem">{h(repo["desc"])}</p>
-      {('<h3>Collections</h3>' + colls_html) if colls else ''}
-      {erd_html}
-      {('<p style="margin-top:.5rem"><a href="' + data_url + '">→ 08_data.md — Modello dati completo</a></p>') if data_url else ''}
+      {(f'<h3>{entity_label}</h3>' + entities_html) if entities else ''}
+      {diag_html}
+      {(f'<p style="margin-top:.5rem"><a href="{data_url}">→ 08_data.md — Modello dati completo</a></p>') if data_url else ''}
     </section>''')
 
-    # cross-repo table
-    tbl_rows = ''
-    for row in all_collections_table:
-        tbl_rows += f'<tr><td><strong>{h(row["repo"])}</strong></td><td><code>{h(row["name"])}</code></td><td><code>{h(row["class"])}</code></td><td>{h(row["note"][:80])}</td></tr>'
+    # ── Cross-repo table ──────────────────────────────────
+    tbl_rows = ''.join(
+        f'<tr><td><strong>{h(r["repo"])}</strong></td><td><code>{h(r["name"])}</code></td>'
+        f'<td><code>{h(r["class"])}</code></td><td>{h(r["note"][:80])}</td></tr>'
+        for r in all_entities_table
+    )
 
     body = f'''
-    <div class="breadcrumb"><a href="index.html">🏠 Home</a> <span class="sep">›</span> MongoDB Relations</div>
+    <div class="breadcrumb"><a href="index.html">🏠 Home</a> <span class="sep">›</span> Modello Dati</div>
     <div class="page-header">
-      <h1>🗄️ Relazioni MongoDB</h1>
-      <p class="subtitle">Inventario collections, ownership e relazioni tra entità per tutti i repository</p>
+      <h1>🗄️ Modello Dati</h1>
+      <p class="subtitle">Entità, tabelle e relazioni cross-repository — solo da evidenze documentali (08_data.md)</p>
     </div>
 
     <h2>📊 Vista Cross-Repository</h2>
     <p style="color:var(--c-muted);font-size:.88rem;margin-bottom:1rem">
-      Tutte le MongoDB collection identificate nei file <code>08_data.md</code> di ogni progetto.
-      Nessuna inferenza: solo evidenze documentali.
+      Tutte le entità/tabelle identificate nei file <code>08_data.md</code> di ogni progetto.
     </p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Progetto</th><th>Collection</th><th>Entity Class</th><th>Note</th></tr></thead>
+        <thead><tr><th>Progetto</th><th>Entità / Tabella</th><th>Classe / Tipo</th><th>Note</th></tr></thead>
         <tbody>{tbl_rows}</tbody>
       </table>
     </div>
 
     {''.join(sections)}
 '''
-    return _page_shell('MongoDB Relations', body, sidebar, base, depth=0, current_url='mongodb.html', site_title=site_title)
+    return _page_shell('Modello Dati', body, sidebar, base, depth=0, current_url='data.html', site_title=site_title)
 
 # ── Search page ────────────────────────────────────────────
 
@@ -1679,13 +1708,13 @@ def main():
         write(OUT / 'search.html', gen_search_page(all_docs_by_repo, repos=repos_data, site_cfg=site_cfg), OUT)
 
         # ── MongoDB page (conditional) ───────────────────────
-        has_mongo = any(
+        has_data = any(
             any(d['stem'] == '08_data' for d in all_docs_by_repo.get(r['id'], []))
             for r in repos_data if r.get('type') != 'parent'
         )
-        if has_mongo:
+        if has_data:
             print('🗄️  MongoDB page…')
-            write(OUT / 'mongodb.html', gen_mongodb_page(repos_data, all_docs_by_repo, site_cfg=site_cfg), OUT)
+            write(OUT / 'data.html', gen_data_page(repos_data, all_docs_by_repo, site_cfg=site_cfg), OUT)
 
         # ── Enterprise index (conditional) ───────────────────
         parent_repo = next((r for r in repos_data if r.get('type') == 'parent'), None)
