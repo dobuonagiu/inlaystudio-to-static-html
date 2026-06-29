@@ -666,7 +666,22 @@ def _sidebar(repos_data, current_url, base, all_docs_by_repo, site_cfg=None):
     site_title = (site_cfg or {}).get('title', 'Docs')
     site_desc  = (site_cfg or {}).get('description', 'Portfolio Documentazione Tecnica')
 
-    parent_repo = next((r for r in repos_data if r.get('type') == 'parent'), None)
+    parent_repo  = next((r for r in repos_data if r.get('type') == 'parent'), None)
+    non_parent   = [r for r in repos_data if r.get('type') != 'parent']
+
+    # ── Group non-parent repos by type ───────────────────────
+    _TYPE_INFO = {
+        'backend':  ('⚙️', 'Backend'),
+        'frontend': ('🖥️', 'Frontend'),
+        'bff':      ('🔀', 'BFF / Gateway'),
+        'service':  ('⚡', 'Service'),
+        'mobile':   ('📱', 'Mobile'),
+    }
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for repo in non_parent:
+        t = repo.get('type', 'service')
+        groups.setdefault(t, []).append(repo)
 
     parts = []
     parts.append(f'''<nav id="sidebar">
@@ -678,13 +693,13 @@ def _sidebar(repos_data, current_url, base, all_docs_by_repo, site_cfg=None):
     <button id="sidebar-toggle" title="Chiudi menu">◀</button>
   </div>''')
 
-    # ── Portfolio global links ───────────────────────────────
+    # ── Portfolio links ──────────────────────────────────────
     mongo_link = ''
     if any(
         any(d['stem'] == '08_data' for d in all_docs_by_repo.get(r['id'], []))
-        for r in repos_data if r.get('type') != 'parent'
+        for r in non_parent
     ):
-        mongo_link = f'      <a href="{base}mongodb.html">🗄️ MongoDB Relations</a>\n'
+        mongo_link = f'      <a href="{base}mongodb.html">🗄️ MongoDB</a>\n'
 
     parts.append(f'''  <div class="sidebar-section">
     <span class="sidebar-section-title">🌐 Portfolio</span>
@@ -694,67 +709,117 @@ def _sidebar(repos_data, current_url, base, all_docs_by_repo, site_cfg=None):
     </div>
   </div>''')
 
-    # ── Enterprise / parent project section ──────────────────
+    # ── Filter input (shown only if > 4 projects) ────────────
+    if len(non_parent) > 4:
+        parts.append('''  <div class="sidebar-filter">
+    <input id="sidebar-filter-input" type="search" placeholder="🔍 Filtra progetti…" autocomplete="off">
+  </div>''')
+
+    # ── Enterprise section ───────────────────────────────────
     if parent_repo:
         parent_docs = all_docs_by_repo.get(parent_repo['id'], [])
         ent_docs = [d for d in parent_docs if d['category'] == 'enterprise']
         req_docs = [d for d in parent_docs if d['category'] == 'requirement_coverage']
         if ent_docs or req_docs:
-            parts.append(f'''  <div class="sidebar-section">
-    <span class="sidebar-section-title">📊 Enterprise</span>
-    <details {'open' if 'enterprise' in current_url else ''}>
+            is_ent_open = 'enterprise' in current_url or 'requirements' in current_url
+            parts.append(f'''  <div class="sidebar-section sidebar-type-group" data-group="enterprise">
+    <span class="sidebar-type-title">📊 Enterprise</span>
+    <details class="sidebar-proj" {'open' if is_ent_open else ''}
+             data-pid="enterprise" data-plabel="Enterprise">
       <summary>📊 Documentazione Enterprise</summary>
       <ul>''')
             for d in ent_docs:
                 active = 'active' if d['url'] == current_url else ''
                 parts.append(f'        <li><a href="{base}{d["url"]}" class="{active}">{d["icon"]} {d["label"]}</a></li>')
-            parts.append('      </ul>\n    </details>')
             if req_docs:
-                parts.append(f'''    <details {'open' if 'requirements' in current_url else ''}>
-      <summary>📋 Requisiti</summary>
-      <ul>''')
+                parts.append('        <li class="sidebar-subgroup-title">📋 Requisiti</li>')
                 for d in req_docs:
                     active = 'active' if d['url'] == current_url else ''
                     parts.append(f'        <li><a href="{base}{d["url"]}" class="{active}">{d["icon"]} {d["label"]}</a></li>')
-                parts.append('      </ul>\n    </details>')
-            parts.append('  </div>')
+            parts.append('      </ul>\n    </details>\n  </div>')
 
-    # ── Per-project sections ─────────────────────────────────
-    for repo in repos_data:
-        if repo.get('type') == 'parent':
-            continue
-        repo_docs = all_docs_by_repo.get(repo['id'], [])
-        main_docs = [d for d in repo_docs if d['category'] == 'main']
-        proc_docs = [d for d in repo_docs if d['category'] == 'process']
-        dd_docs   = [d for d in repo_docs if d['category'] == 'deepdive']
-        uc_docs   = [d for d in repo_docs if d['category'] == 'usecase']
-        art_docs  = [d for d in repo_docs if d['category'] == 'artifact']
-        ts_docs   = [d for d in repo_docs if d['category'] == 'test_spec']
-        is_open = any(d['url'] == current_url for d in repo_docs) or f'projects/{repo["id"]}' in current_url
-        parts.append(f'''  <div class="sidebar-section">
-    <span class="sidebar-section-title">{repo["badge"]}</span>
-    <details {'open' if is_open else ''}>
-      <summary><span style="width:8px;height:8px;border-radius:50%;background:var(--c-{repo["color"]});display:inline-block;margin-right:4px"></span>{repo["label"]}</summary>
+    # ── Projects grouped by type ─────────────────────────────
+    for type_key, repos_in_group in groups.items():
+        type_icon, type_label = _TYPE_INFO.get(type_key, ('📦', type_key.capitalize()))
+        n = len(repos_in_group)
+        # Open the group if any project in it is the current page
+        group_has_active = any(
+            any(d['url'] == current_url for d in all_docs_by_repo.get(r['id'], []))
+            or f'projects/{r["id"]}' in current_url
+            for r in repos_in_group
+        )
+        group_open = group_has_active or n <= 4
+
+        parts.append(f'''  <div class="sidebar-section sidebar-type-group" data-group="{type_key}">
+    <span class="sidebar-type-title">{type_icon} {type_label} <span class="proj-count">{n}</span></span>''')
+
+        for repo in repos_in_group:
+            repo_docs = all_docs_by_repo.get(repo['id'], [])
+            main_docs = [d for d in repo_docs if d['category'] == 'main']
+            proc_docs = [d for d in repo_docs if d['category'] == 'process']
+            dd_docs   = [d for d in repo_docs if d['category'] == 'deepdive']
+            uc_docs   = [d for d in repo_docs if d['category'] == 'usecase']
+            art_docs  = [d for d in repo_docs if d['category'] == 'artifact']
+            ts_docs   = [d for d in repo_docs if d['category'] == 'test_spec']
+
+            is_proj_active = (
+                any(d['url'] == current_url for d in repo_docs)
+                or f'projects/{repo["id"]}' in current_url
+            )
+            proj_open = is_proj_active
+
+            # Compact doc-count badges for collapsed state
+            meta_badges = ''
+            if main_docs:   meta_badges += f'<span class="proj-meta-badge">📚{len(main_docs)}</span>'
+            if art_docs:    meta_badges += f'<span class="proj-meta-badge">📋{len(art_docs)}</span>'
+            if proc_docs:   meta_badges += f'<span class="proj-meta-badge">↔️{len(proc_docs)}</span>'
+            if dd_docs:     meta_badges += f'<span class="proj-meta-badge">🔎{len(dd_docs)}</span>'
+            if ts_docs:     meta_badges += f'<span class="proj-meta-badge">🧪{len(ts_docs)}</span>'
+            if uc_docs:     meta_badges += f'<span class="proj-meta-badge">🖱️{len(uc_docs)}</span>'
+
+            dot = f'<span style="width:7px;height:7px;border-radius:50%;background:var(--c-{repo["color"]});display:inline-block;flex-shrink:0"></span>'
+
+            parts.append(f'''    <details class="sidebar-proj" {'open' if proj_open else ''}
+             data-pid="{h(repo['id'])}" data-plabel="{h(repo['label'])}">
+      <summary>
+        {dot}
+        <span class="proj-summary-text">{h(repo["label"])}</span>
+        <span class="proj-meta">{meta_badges}</span>
+      </summary>
       <ul>
         <li><a href="{base}projects/{repo['id']}/index.html" class="{'active' if current_url == f'projects/{repo["id"]}/index.html' else ''}">🏠 Panoramica</a></li>''')
-        for d in main_docs:
-            active = 'active' if d['url'] == current_url else ''
-            parts.append(f'        <li><a href="{base}{d["url"]}" class="{active}">{d["icon"]} {d["label"]}</a></li>')
-        def _sidebar_group(label, icon, docs, anchor):
-            if not docs:
-                return
-            parts.append(f'        <li style="padding:.2rem 0 0"><strong style="font-size:.68rem;color:var(--c-light)">{icon} {label} ({len(docs)})</strong></li>')
-            for d in docs[:5]:
+
+            # Main docs (up to 6, then "… +N altri")
+            for d in main_docs[:6]:
                 active = 'active' if d['url'] == current_url else ''
-                parts.append(f'        <li><a href="{base}{d["url"]}" class="{active}" style="font-size:.74rem">{d["label"][:30]}</a></li>')
-            if len(docs) > 5:
-                parts.append(f'        <li><a href="{base}projects/{repo["id"]}/index.html#{anchor}" style="font-size:.72rem;color:var(--c-light)">… +{len(docs)-5} altri</a></li>')
-        _sidebar_group('Artefatti', '📋', art_docs, 'artifacts')
-        _sidebar_group('Test Spec', '🧪', ts_docs, 'test-spec')
-        _sidebar_group('Processi', '↔️', proc_docs, 'processi')
-        _sidebar_group('Deep Dive', '🔎', dd_docs, 'deepdive')
-        _sidebar_group('Use Cases', '🖱️', uc_docs, 'usecases')
-        parts.append('      </ul>\n    </details>\n  </div>')
+                parts.append(f'        <li><a href="{base}{d["url"]}" class="{active}">{d["icon"]} {d["label"]}</a></li>')
+            if len(main_docs) > 6:
+                parts.append(f'        <li><a href="{base}projects/{repo["id"]}/index.html" style="font-size:.72rem;color:var(--c-light)">… +{len(main_docs)-6} altri</a></li>')
+
+            # Section links (only counts + anchor links, no individual doc links)
+            def _sec(anchor, icon, label, docs):
+                if not docs: return
+                # If one of these docs is current, show the individual links too
+                any_active = any(d['url'] == current_url for d in docs)
+                if any_active:
+                    parts.append(f'        <li class="sidebar-subgroup-title">{icon} {label}</li>')
+                    for d in docs[:5]:
+                        active = 'active' if d['url'] == current_url else ''
+                        parts.append(f'        <li><a href="{base}{d["url"]}" class="{active}" style="font-size:.74rem">{h(d["label"][:28])}</a></li>')
+                    if len(docs) > 5:
+                        parts.append(f'        <li><a href="{base}projects/{repo["id"]}/index.html#{anchor}" style="font-size:.72rem;color:var(--c-light)">… +{len(docs)-5} altri</a></li>')
+                else:
+                    parts.append(f'        <li><a href="{base}projects/{repo["id"]}/index.html#{anchor}" style="font-size:.76rem;color:var(--c-muted)">{icon} {label} ({len(docs)})</a></li>')
+
+            _sec('artifacts', '📋', 'Artefatti', art_docs)
+            _sec('test-spec', '🧪', 'Test Spec', ts_docs)
+            _sec('processi',  '↔️', 'Processi',  proc_docs)
+            _sec('deepdive',  '🔎', 'Deep Dive', dd_docs)
+            _sec('usecases',  '🖱️', 'Use Cases', uc_docs)
+
+            parts.append('      </ul>\n    </details>')
+
+        parts.append('  </div>')  # close sidebar-type-group
 
     parts.append('</nav>')
     return '\n'.join(parts)

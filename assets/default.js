@@ -312,3 +312,37 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 });
+
+// ── Sidebar project filter ──────────────────────────────
+(function initSidebarFilter() {
+  document.addEventListener('DOMContentLoaded', function() {
+    const input = document.getElementById('sidebar-filter-input');
+    if (!input) return;
+
+    function filterProjects(q) {
+      q = q.toLowerCase().trim();
+      const groups = document.querySelectorAll('.sidebar-type-group');
+      groups.forEach(function(grp) {
+        const projs = grp.querySelectorAll('.sidebar-proj');
+        if (!projs.length) return; // enterprise or other non-project group
+        let visible = 0;
+        projs.forEach(function(proj) {
+          const pid    = (proj.dataset.pid    || '').toLowerCase();
+          const plabel = (proj.dataset.plabel || '').toLowerCase();
+          const show   = !q || pid.includes(q) || plabel.includes(q);
+          proj.style.display = show ? '' : 'none';
+          if (show) visible++;
+        });
+        const counter = grp.querySelector('.proj-count');
+        if (counter) counter.textContent = visible;
+        grp.style.display = (visible === 0 && q) ? 'none' : '';
+      });
+    }
+
+    input.addEventListener('input', function() { filterProjects(this.value); });
+    // Clear on Escape
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { this.value = ''; filterProjects(''); this.blur(); }
+    });
+  });
+})();
